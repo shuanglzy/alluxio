@@ -16,20 +16,21 @@ import alluxio.PropertyKey;
 import alluxio.client.block.BlockWorkerInfo;
 import alluxio.client.block.policy.BlockLocationPolicy;
 import alluxio.client.block.policy.options.GetWorkerOptions;
-import alluxio.util.network.NetworkAddressUtils;
+import alluxio.wire.TieredIdentity;
 import alluxio.wire.WorkerNetAddress;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import javax.annotation.concurrent.ThreadSafe;
 /**
  * A policy that returns local host first, and if the local worker doesn't have enough availability,
  * it randomly picks a worker from the active workers list for each block write.
- * If No worker meets the demands, return local host.
+ * If no worker meets the demands, return local host.
  * USER_FILE_WRITE_AVOID_EVICTION_POLICY_RESERVED_BYTES is used to reserve some space of the worker
  * to store the block, for the values mCapacityBytes minus mUsedBytes is not the available bytes.
  */
@@ -37,46 +38,38 @@ import javax.annotation.concurrent.ThreadSafe;
 @ThreadSafe
 public final class LocalFirstAvoidEvictionPolicy
     implements FileWriteLocationPolicy, BlockLocationPolicy {
-  private String mLocalHostName;
+  private final LocalFirstPolicy mPolicy;
 
   /**
    * Constructs a {@link LocalFirstAvoidEvictionPolicy}.
    */
   public LocalFirstAvoidEvictionPolicy() {
-    mLocalHostName = NetworkAddressUtils.getClientHostName();
+    mPolicy = new LocalFirstPolicy();
+  }
+
+  @VisibleForTesting
+  LocalFirstAvoidEvictionPolicy(TieredIdentity localTieredIdentity) {
+    mPolicy = LocalFirstPolicy.create(localTieredIdentity);
   }
 
   @Override
   public WorkerNetAddress getWorkerForNextBlock(Iterable<BlockWorkerInfo> workerInfoList,
       long blockSizeBytes) {
-    // try the local host first
-    WorkerNetAddress localWorkerNetAddress = null;
-    for (BlockWorkerInfo workerInfo : workerInfoList) {
-      if (workerInfo.getNetAddress().getHost().equals(mLocalHostName)) {
-        localWorkerNetAddress = workerInfo.getNetAddress();
-        if (getAvailableBytes(workerInfo) >= blockSizeBytes) {
-          return localWorkerNetAddress;
-        }
-      }
+    List<BlockWorkerInfo> allWorkers = Lists.newArrayList(workerInfoList);
+    // Prefer workers with enough availability.
+    List<BlockWorkerInfo> workers = allWorkers.stream()
+        .filter(worker -> getAvailableBytes(worker) >= blockSizeBytes)
+        .collect(Collectors.toList());
+    if (workers.isEmpty()) {
+      workers = allWorkers;
     }
-
-    // otherwise randomly pick a worker that has enough availability
-    List<BlockWorkerInfo> shuffledWorkers = Lists.newArrayList(workerInfoList);
-    Collections.shuffle(shuffledWorkers);
-    for (BlockWorkerInfo workerInfo : shuffledWorkers) {
-      if (getAvailableBytes(workerInfo) >= blockSizeBytes) {
-        return workerInfo.getNetAddress();
-      }
-    }
-    if (localWorkerNetAddress == null && shuffledWorkers.size() > 0) {
-      return shuffledWorkers.get(0).getNetAddress();
-    }
-    return localWorkerNetAddress;
+    return mPolicy.getWorkerForNextBlock(workers, blockSizeBytes);
   }
 
   @Override
   public WorkerNetAddress getWorker(GetWorkerOptions options) {
     return getWorkerForNextBlock(options.getBlockWorkerInfos(), options.getBlockSize());
+
   }
 
   /**
@@ -104,18 +97,18 @@ public final class LocalFirstAvoidEvictionPolicy
       return false;
     }
     LocalFirstAvoidEvictionPolicy that = (LocalFirstAvoidEvictionPolicy) o;
-    return Objects.equal(mLocalHostName, that.mLocalHostName);
+    return Objects.equal(mPolicy, that.mPolicy);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mLocalHostName);
+    return Objects.hashCode(mPolicy);
   }
 
   @Override
   public String toString() {
     return Objects.toStringHelper(this)
-        .add("localHostName", mLocalHostName)
+        .add("policy", mPolicy)
         .toString();
   }
 }

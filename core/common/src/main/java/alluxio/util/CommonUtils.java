@@ -11,6 +11,8 @@
 
 package alluxio.util;
 
+import alluxio.Configuration;
+import alluxio.PropertyKey;
 import alluxio.exception.status.AlluxioStatusException;
 import alluxio.exception.status.Status;
 import alluxio.proto.dataserver.Protocol;
@@ -24,13 +26,17 @@ import com.google.common.base.Function;
 import com.google.common.base.Splitter;
 import com.google.common.base.Throwables;
 import com.google.common.io.Closer;
+import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +62,8 @@ public final class CommonUtils {
 
   private static final String ALPHANUM =
       "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  private static final String DATE_FORMAT_PATTERN =
+      Configuration.get(PropertyKey.USER_DATE_FORMAT_PATTERN);
   private static final Random RANDOM = new Random();
 
   /**
@@ -515,6 +523,23 @@ public final class CommonUtils {
     }
   }
 
+  /** Alluxio process types. */
+  public enum ProcessType {
+    CLIENT,
+    MASTER,
+    PROXY,
+    WORKER;
+  }
+
+  /**
+   * Represents the type of Alluxio process running in this JVM.
+   *
+   * NOTE: This will only be set by main methods of Alluxio processes. It will not be set properly
+   * for tests. Avoid using this field if at all possible.
+   */
+  public static final java.util.concurrent.atomic.AtomicReference<ProcessType> PROCESS_TYPE =
+      new java.util.concurrent.atomic.AtomicReference<>(ProcessType.CLIENT);
+
   /**
    * Unwraps a {@link alluxio.proto.dataserver.Protocol.Response}.
    *
@@ -528,11 +553,75 @@ public final class CommonUtils {
   }
 
   /**
+   * Unwraps a {@link alluxio.proto.dataserver.Protocol.Response} associated with a channel.
+   *
+   * @param response the response
+   * @param channel the channel that receives this response
+   */
+  public static void unwrapResponseFrom(Protocol.Response response, Channel channel)
+      throws AlluxioStatusException {
+    Status status = Status.fromProto(response.getStatus());
+    if (status != Status.OK) {
+      throw AlluxioStatusException.from(status, String
+          .format("Channel to %s: %s", channel.remoteAddress(), response.getMessage()));
+    }
+  }
+
+  /**
    * @param address the Alluxio worker network address
    * @return true if the worker is local
    */
   public static boolean isLocalHost(WorkerNetAddress address) {
     return address.getHost().equals(NetworkAddressUtils.getClientHostName());
+  }
+
+  /**
+   * Closes the netty channel from outside the netty I/O thread.
+   * NOTE: Be careful when holding any lock that can be acquired in the netty I/O thread when
+   * calling this function to avoid having deadlocks.
+   *
+   * @param channel the netty channel
+   */
+  public static void closeChannel(final Channel channel) {
+    if (channel.isOpen())  {
+      try {
+        channel.eventLoop().submit(new Runnable() {
+          @Override
+          public void run() {
+            channel.close();
+          }
+        }).sync();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(e);
+      }
+    }
+  }
+
+  /**
+   * Closes the netty channel synchronously. Usually do not do this since this can take long time
+   * if the server is not responsive.
+   *
+   * @param channel the netty channel
+   */
+  public static void closeChannelSync(Channel channel) {
+    try {
+      channel.close().sync();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(e);
+    }
+  }
+
+  /**
+   * Converts a millisecond number to a formatted date String.
+   *
+   * @param millis a long millisecond number
+   * @return formatted date String
+   */
+  public static String convertMsToDate(long millis) {
+    DateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT_PATTERN);
+    return dateFormat.format(new Date(millis));
   }
 
   private CommonUtils() {} // prevent instantiation

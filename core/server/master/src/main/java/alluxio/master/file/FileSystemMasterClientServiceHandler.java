@@ -44,6 +44,7 @@ import alluxio.thrift.FileInfo;
 import alluxio.thrift.FileSystemMasterClientService;
 import alluxio.thrift.FreeTOptions;
 import alluxio.thrift.FreeTResponse;
+import alluxio.thrift.GetMountTableTResponse;
 import alluxio.thrift.GetNewBlockIdForFileTOptions;
 import alluxio.thrift.GetNewBlockIdForFileTResponse;
 import alluxio.thrift.GetServiceVersionTOptions;
@@ -66,6 +67,8 @@ import alluxio.thrift.UnmountTOptions;
 import alluxio.thrift.UnmountTResponse;
 import alluxio.wire.ThriftUtils;
 
+import alluxio.wire.MountPointInfo;
+
 import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,6 +76,8 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
@@ -92,7 +97,7 @@ public final class FileSystemMasterClientServiceHandler implements
    * @param fileSystemMaster the {@link FileSystemMaster} the handler uses internally
    */
   FileSystemMasterClientServiceHandler(FileSystemMaster fileSystemMaster) {
-    Preconditions.checkNotNull(fileSystemMaster);
+    Preconditions.checkNotNull(fileSystemMaster, "fileSystemMaster");
     mFileSystemMaster = fileSystemMaster;
   }
 
@@ -104,7 +109,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public CheckConsistencyTResponse checkConsistency(final String path,
       final CheckConsistencyTOptions options) throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<CheckConsistencyTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<CheckConsistencyTResponse>() {
       @Override
       public CheckConsistencyTResponse call() throws AlluxioException, IOException {
         List<AlluxioURI> inconsistentUris = mFileSystemMaster.checkConsistency(
@@ -126,7 +131,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public CompleteFileTResponse completeFile(final String path, final CompleteFileTOptions options)
       throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallable<CompleteFileTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallable<CompleteFileTResponse>() {
       @Override
       public CompleteFileTResponse call() throws AlluxioException {
         mFileSystemMaster.completeFile(new AlluxioURI(path), new CompleteFileOptions(options));
@@ -143,7 +148,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public CreateDirectoryTResponse createDirectory(final String path,
       final CreateDirectoryTOptions options) throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<CreateDirectoryTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<CreateDirectoryTResponse>() {
       @Override
       public CreateDirectoryTResponse call() throws AlluxioException, IOException {
         mFileSystemMaster.createDirectory(new AlluxioURI(path),
@@ -161,7 +166,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public CreateFileTResponse createFile(final String path, final CreateFileTOptions options)
       throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<CreateFileTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<CreateFileTResponse>() {
       @Override
       public CreateFileTResponse call() throws AlluxioException, IOException {
         mFileSystemMaster.createFile(new AlluxioURI(path), new CreateFileOptions(options));
@@ -178,7 +183,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public FreeTResponse free(final String path, final boolean recursive, final FreeTOptions options)
       throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallable<FreeTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallable<FreeTResponse>() {
       @Override
       public FreeTResponse call() throws AlluxioException {
         if (options == null) {
@@ -203,7 +208,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public GetNewBlockIdForFileTResponse getNewBlockIdForFile(final String path,
       final GetNewBlockIdForFileTOptions options) throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallable<GetNewBlockIdForFileTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallable<GetNewBlockIdForFileTResponse>() {
       @Override
       public GetNewBlockIdForFileTResponse call() throws AlluxioException {
         return new GetNewBlockIdForFileTResponse(
@@ -220,7 +225,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public GetStatusTResponse getStatus(final String path, final GetStatusTOptions options)
       throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallable<GetStatusTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallable<GetStatusTResponse>() {
       @Override
       public GetStatusTResponse call() throws AlluxioException {
         return new GetStatusTResponse(ThriftUtils.toThrift(
@@ -237,7 +242,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public ListStatusTResponse listStatus(final String path, final ListStatusTOptions options)
       throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallable<ListStatusTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallable<ListStatusTResponse>() {
       @Override
       public ListStatusTResponse call() throws AlluxioException {
         List<FileInfo> result = new ArrayList<>();
@@ -265,7 +270,7 @@ public final class FileSystemMasterClientServiceHandler implements
   public LoadMetadataTResponse loadMetadata(final String alluxioPath, final boolean recursive,
       final LoadMetadataTOptions options)
       throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<LoadMetadataTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<LoadMetadataTResponse>() {
       @Override
       public LoadMetadataTResponse call() throws AlluxioException, IOException {
         return new LoadMetadataTResponse(mFileSystemMaster.loadMetadata(new AlluxioURI(alluxioPath),
@@ -283,7 +288,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public MountTResponse mount(final String alluxioPath, final String ufsPath,
       final MountTOptions options) throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<MountTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<MountTResponse>() {
       @Override
       public MountTResponse call() throws AlluxioException, IOException {
         mFileSystemMaster.mount(new AlluxioURI(alluxioPath), new AlluxioURI(ufsPath),
@@ -300,9 +305,32 @@ public final class FileSystemMasterClientServiceHandler implements
   }
 
   @Override
+  public GetMountTableTResponse getMountTable() throws AlluxioTException {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<GetMountTableTResponse>() {
+      @Override
+      public GetMountTableTResponse call() throws AlluxioException, IOException {
+        Map<String, MountPointInfo> mountTableWire = mFileSystemMaster.getMountTable();
+        Map<String, alluxio.thrift.MountPointInfo> mountTableThrift = new HashMap<>();
+        for (Map.Entry<String, MountPointInfo> entry :
+                mountTableWire.entrySet()) {
+          MountPointInfo mMountPointInfo = entry.getValue();
+          alluxio.thrift.MountPointInfo mountPointThrift = ThriftUtils.toThrift(mMountPointInfo);
+          mountTableThrift.put(entry.getKey(), mountPointThrift);
+        }
+        return new GetMountTableTResponse(mountTableThrift);
+      }
+
+      @Override
+      public String toString() {
+        return String.format("GetMountTable: ");
+      }
+    });
+  }
+
+  @Override
   public DeleteTResponse remove(final String path, final boolean recursive,
       final DeleteTOptions options) throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<DeleteTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<DeleteTResponse>() {
       @Override
       public DeleteTResponse call() throws AlluxioException, IOException {
         if (options == null) {
@@ -327,7 +355,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public RenameTResponse rename(final String srcPath, final String dstPath,
       final RenameTOptions options) throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<RenameTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<RenameTResponse>() {
       @Override
       public RenameTResponse call() throws AlluxioException, IOException {
         mFileSystemMaster
@@ -346,7 +374,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public ScheduleAsyncPersistenceTResponse scheduleAsyncPersistence(final String path,
       final ScheduleAsyncPersistenceTOptions options) throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallable<ScheduleAsyncPersistenceTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallable<ScheduleAsyncPersistenceTResponse>() {
       @Override
       public ScheduleAsyncPersistenceTResponse call() throws AlluxioException {
         mFileSystemMaster.scheduleAsyncPersistence(new AlluxioURI(path));
@@ -363,9 +391,9 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public SetAttributeTResponse setAttribute(final String path, final SetAttributeTOptions options)
       throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallable<SetAttributeTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<SetAttributeTResponse>() {
       @Override
-      public SetAttributeTResponse call() throws AlluxioException {
+      public SetAttributeTResponse call() throws AlluxioException, IOException {
         mFileSystemMaster.setAttribute(new AlluxioURI(path), new SetAttributeOptions(options));
         return new SetAttributeTResponse();
       }
@@ -380,7 +408,7 @@ public final class FileSystemMasterClientServiceHandler implements
   @Override
   public UnmountTResponse unmount(final String alluxioPath, final UnmountTOptions options)
       throws AlluxioTException {
-    return RpcUtils.callAndLog(LOG, new RpcCallableThrowsIOException<UnmountTResponse>() {
+    return RpcUtils.call(LOG, new RpcCallableThrowsIOException<UnmountTResponse>() {
       @Override
       public UnmountTResponse call() throws AlluxioException, IOException {
         mFileSystemMaster.unmount(new AlluxioURI(alluxioPath));

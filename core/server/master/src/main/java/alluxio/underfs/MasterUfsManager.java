@@ -11,28 +11,13 @@
 
 package alluxio.underfs;
 
-import alluxio.util.network.NetworkAddressUtils;
-
-import java.io.IOException;
-
 import javax.annotation.concurrent.ThreadSafe;
 
 /**
- * A class manages the UFS used by different services.
+ * A class that manages the UFS for master servers.
  */
 @ThreadSafe
 public final class MasterUfsManager extends AbstractUfsManager {
-
-  /**
-   * Establishes the connection to the given UFS from master.
-   *
-   * @param ufs UFS instance
-   * @throws IOException if failed to create the UFS instance
-   */
-  public void connect(UnderFileSystem ufs) throws IOException {
-    ufs.connectFromMaster(
-        NetworkAddressUtils.getConnectHost(NetworkAddressUtils.ServiceType.MASTER_RPC));
-  }
 
   /**
    * Constructs the instance of {@link MasterUfsManager}.

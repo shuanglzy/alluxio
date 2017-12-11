@@ -11,6 +11,8 @@
 
 package alluxio;
 
+import alluxio.util.IdUtils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,6 +37,9 @@ public final class Sessions {
   public static final int MASTER_COMMAND_SESSION_ID = -4;
   public static final int ACCESS_BLOCK_SESSION_ID = -5;
   public static final int KEYVALUE_SESSION_ID = -6;
+
+  // internal session id base should be smaller than all predefined session ids
+  public static final long INTERNAL_SESSION_ID_BASE = -7;
 
   /** Map from SessionId to {@link alluxio.SessionInfo} object. */
   private final Map<Long, SessionInfo> mSessions;
@@ -86,9 +91,17 @@ public final class Sessions {
       if (mSessions.containsKey(sessionId)) {
         mSessions.get(sessionId).heartbeat();
       } else {
-        int sessionTimeoutMs = Configuration.getInt(PropertyKey.WORKER_SESSION_TIMEOUT_MS);
+        int sessionTimeoutMs = (int) Configuration.getMs(PropertyKey.WORKER_SESSION_TIMEOUT_MS);
         mSessions.put(sessionId, new SessionInfo(sessionId, sessionTimeoutMs));
       }
     }
+  }
+
+  /**
+   * @return a session id used internally in workers
+   */
+  public static long createInternalSessionId() {
+    return INTERNAL_SESSION_ID_BASE
+        - IdUtils.getRandomNonNegativeLong() % (Long.MAX_VALUE + INTERNAL_SESSION_ID_BASE);
   }
 }

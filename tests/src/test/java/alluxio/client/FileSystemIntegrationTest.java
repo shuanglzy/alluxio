@@ -14,13 +14,16 @@ package alluxio.client;
 import static org.junit.Assert.assertFalse;
 
 import alluxio.AlluxioURI;
+import alluxio.BaseIntegrationTest;
 import alluxio.Configuration;
+import alluxio.Constants;
 import alluxio.LocalAlluxioClusterResource;
 import alluxio.PropertyKey;
-import alluxio.BaseIntegrationTest;
+import alluxio.client.file.FileOutStream;
 import alluxio.client.file.FileSystem;
 import alluxio.client.file.FileSystemTestUtils;
 import alluxio.client.file.URIStatus;
+import alluxio.client.file.options.CreateDirectoryOptions;
 import alluxio.client.file.options.CreateFileOptions;
 import alluxio.client.file.options.DeleteOptions;
 import alluxio.exception.AlluxioException;
@@ -30,9 +33,12 @@ import alluxio.exception.FileDoesNotExistException;
 import alluxio.exception.InvalidPathException;
 import alluxio.master.LocalAlluxioCluster;
 import alluxio.underfs.UnderFileSystem;
+import alluxio.util.CommonUtils;
 import alluxio.util.UnderFileSystemUtils;
+import alluxio.util.WaitForOptions;
 import alluxio.util.io.PathUtils;
 
+import com.google.common.base.Function;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -45,6 +51,7 @@ import java.io.IOException;
  * Integration tests on Alluxio Client (reuse the {@link LocalAlluxioCluster}).
  */
 public final class FileSystemIntegrationTest extends BaseIntegrationTest {
+  private static final byte[] TEST_BYTES = "TestBytes".getBytes();
   private static final int USER_QUOTA_UNIT_BYTES = 1000;
   @Rule
   public LocalAlluxioClusterResource mLocalAlluxioClusterResource =
@@ -87,7 +94,7 @@ public final class FileSystemIntegrationTest extends BaseIntegrationTest {
     for (int k = 0; k < 5; k++) {
       AlluxioURI fileURI = new AlluxioURI(uniqPath + k);
       FileSystemTestUtils.createByteFile(mFileSystem, fileURI.getPath(), k, mWriteBoth);
-      Assert.assertTrue(mFileSystem.getStatus(fileURI).getInMemoryPercentage() == 100);
+      Assert.assertTrue(mFileSystem.getStatus(fileURI).getInAlluxioPercentage() == 100);
       Assert.assertNotNull(mFileSystem.getStatus(fileURI));
     }
 
@@ -100,13 +107,43 @@ public final class FileSystemIntegrationTest extends BaseIntegrationTest {
     }
   }
 
+  /**
+   * Tests if a directory with in-progress writes can be deleted recursively.
+   */
+  @Test
+  public void deleteDirectoryWithPersistedWritesInProgress() throws Exception {
+    final AlluxioURI testFolder = new AlluxioURI("/testFolder");
+    mFileSystem.createDirectory(testFolder,
+        CreateDirectoryOptions.defaults().setWriteType(WriteType.CACHE_THROUGH));
+    FileOutStream out =
+        mFileSystem.createFile(new AlluxioURI("/testFolder/testFile"), CreateFileOptions.defaults()
+            .setWriteType(WriteType.CACHE_THROUGH));
+    out.write(TEST_BYTES);
+    out.flush();
+    // Need to wait for the file to be flushed, see ALLUXIO-2899
+    CommonUtils.waitFor("File flush.", new Function<Void, Boolean>() {
+      @Override
+      public Boolean apply(Void input) {
+        try {
+          return mUfs.listStatus(mFileSystem.getStatus(testFolder).getUfsPath()).length > 0;
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }, WaitForOptions.defaults().setTimeoutMs(5 * Constants.SECOND_MS));
+    mFileSystem.delete(new AlluxioURI("/testFolder"), DeleteOptions.defaults().setRecursive(true));
+    Assert.assertFalse(mFileSystem.exists(new AlluxioURI("/testFolder")));
+    mThrown.expect(IOException.class);
+    out.close();
+  }
+
   @Test
   public void getFileStatus() throws Exception {
     String uniqPath = PathUtils.uniqPath();
     int writeBytes = USER_QUOTA_UNIT_BYTES * 2;
     AlluxioURI uri = new AlluxioURI(uniqPath);
     FileSystemTestUtils.createByteFile(mFileSystem, uri.getPath(), writeBytes, mWriteBoth);
-    Assert.assertTrue(mFileSystem.getStatus(uri).getInMemoryPercentage() == 100);
+    Assert.assertTrue(mFileSystem.getStatus(uri).getInAlluxioPercentage() == 100);
 
     Assert.assertTrue(mFileSystem.getStatus(uri).getPath().equals(uniqPath));
   }
@@ -251,7 +288,7 @@ public final class FileSystemIntegrationTest extends BaseIntegrationTest {
       // Cannot mount to path that shadows a file in the primary UFS
       mFileSystem.mount(new AlluxioURI("/dir1"), new AlluxioURI(subdirPath));
       Assert.fail("Cannot mount to path that shadows a file in the primary UFS");
-    } catch (IOException e) {
+    } catch (AlluxioException e) {
       // Exception expected, continue
     } finally {
       destroyAlternateUfs(alternateUfsRoot);
